@@ -1,0 +1,135 @@
+---
+title: "mantarays-sims"
+format: html
+---
+
+## Rationale
+TODO
+
+## Packages Necessary
+
+```{r}
+# Make sure to have these packages installed before runnig the code below
+library(tidyverse);  library(kableExtra); library(lme4); library(partR2)
+library(easystats); library(ordinal)
+```
+
+
+## Simulate variation in leadership preferences
+
+### Setup and individual assignment to foraging groups
+We imagine a closed population of 100 mantas observed foraging in 100 instances. For simplicity, lets say that mantas always forage in groups of 10 individuals but the identity of each individual present in a given group shifts from observation to observation.
+
+```{r}
+# Seed for reproducible simulation
+set.seed(42) 
+
+# Value storage
+N_ID = 100
+N_obs = 100
+Group_size = 10
+# Dataset structure
+dfsim = data.frame(Obs = rep(1:N_obs, each = N_ID),
+                   Id = rep(1:N_ID, N_obs), 
+                   # Sample integers from 1 to 10 and repeat 100 times
+                   Group = rep(sample.int(n = Group_size, size = Group_size,
+                                          replace = F), N_obs),
+                   Group_N = 10) %>% 
+  mutate(Group_ID = paste(Group, Obs, sep = "_"))
+dfsim %>% head(15) %>% kable()
+
+```
+
+We now have each individual assigned to a foraging group. We now need to figure out a way to assign ranks corresponding to an individual's position within the group (1: at the front, 2: second from the front, ...). 
+
+### Individual preference for position in group
+The simplest way to rank individuals is to give them a preference score for belonging to the front or not according to a normal distribution. Here, we assume that this preference is sampled from a normal distribution of mean 0 and a standard deviation of 1 ($N(0, 1)$). We can store this information in a dataframe format 
+
+```{r}
+# Seed for reproducible simulation
+set.seed(42) 
+
+ID = data.frame(Id = 1:N_ID) %>% 
+  mutate(pref = rnorm(n(), 0, 1))
+```
+
+We then merge the column `pref` into the `dfsim` dataframe
+
+```{r}
+dfsim = merge(dfsim, ID)
+
+```
+
+Based on this preference score, we assign a rank to each individuals within each foraging observation and group. Because the way the `rank()` function works, individuals with the most negative value are more likely to get a lower rank value.
+
+```{r}
+set.seed(42) 
+
+dfsim = dfsim %>% 
+  group_by(Group_ID) %>% 
+  mutate(rank = rank(pref)) %>% 
+  arrange(Obs, Group) %>% 
+  ungroup()
+dfsim %>% head(15) %>% kable()
+
+```
+
+
+
+## Data analysis
+
+## Binomial GLMM for the probability of leading a  foraging groups
+
+```{r}
+dfsim = dfsim %>% 
+  mutate(lead = case_when(rank == 1 ~ 1, rank > 1 ~ 0))
+
+glmm.lead = glmer(lead ~ 1 + (1|Id), 
+               family = "binomial", 
+               data = dfsim)
+summary(glmm.lead)
+```
+
+```{r}
+report_table(glmm.lead)
+r2(glmm.lead)
+```
+
+
+
+## Binomial GLMM for ranking within foraging groups
+
+```{r}
+glmm.rank = glmer(cbind(rank, Group_N) ~ 1 + (1|Id), 
+               family = "binomial", 
+               data = dfsim)
+summary(glmm.rank)
+```
+
+```{r}
+report_table(glmm.rank)
+check_model(glmm.rank)
+```
+
+
+## Cumulative Link Mixed Model for ranking within foraging groups
+
+
+```{r}
+dfsim$rank.f = as.factor(dfsim$rank)
+clmm.rank = clmm(rank.f ~ 1 + (1|Id), data = dfsim, threshold = "equidistant")
+clmm.rank
+```
+
+
+```{r}
+brms.rank = brm(rank ~ 1 + (1|Id), 
+                data = dfsim,
+                family = "cumulative",
+                cores = 4, 
+                threads = 4, 
+                iter = 500,
+                backend = "cmdstanr")
+```
+
+
