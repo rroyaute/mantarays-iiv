@@ -1,6 +1,23 @@
 ---
-title: "mantarays-sims"
-format: html
+title: "Simulations for individual differences in group foraging in manta rays"
+author: "Raphaël Royauté"
+date: last-modified
+format:
+  html: 
+    code-fold: true
+    fig-cap-location: bottom
+    shift-heading-level-by: 1
+    embed-resources: true
+toc: true
+toc-depth: 5
+toc-location: left
+execute:
+  echo: true
+  warning: false
+  message: false
+editor: 
+  markdown: 
+    wrap: sentence
 ---
 
 ## Rationale
@@ -9,10 +26,12 @@ TODO
 ## Packages Necessary
 
 ```{r}
+#| code-fold: false
 # Make sure to have these packages installed before runnig the code below
-library(tidyverse);  library(here)
-library(kableExtra); library(lme4); library(partR2)
-library(easystats); library(ordinal); library(brms)
+library(tidyverse);  library(here); library(kableExtra); library(lme4)
+library(brms); library(rptR); library(partR2); library(easystats)
+library(ordinal); library(ggdist); library(tidyverse); library(ggthemes)
+library(patchwork)
 ```
 
 
@@ -83,6 +102,10 @@ dfsim %>% head(15) %>% kable()
 
 I'm comparing 3 GLMM distribution families for analyzing individual position in group:
 - A binomial GLMM where position is bounded by group size
+- A Poisson GLMM where position is not bounded by group size
+- A cumulative link GLMM where ranks are considered discrete ordered categories and are bounded by group size
+
+The last model is probably the most accurate but is also the most difficult to work with! By comparing those models, my goal is to figure out if a binomial or Poisson GLMM is sufficient to recover the simulated parameter estimates and to properly predict the distribution of ranks within groups. While calculating repeatability for binomial and Poisson GLMM has been well resolved, there are no known formula for the cumulative link GLMM (that I know of!). 
 
 ## Binomial GLMM for the probability of leading a  foraging groups
 
@@ -131,16 +154,6 @@ report_table(glmm.rank.poiss)
 check_model(glmm.rank.poiss)
 ```
 
-```{r}
-glmm.rank.poiss.2 = glmer(rank ~ Group_N + (1|Id), 
-               family = "poisson", 
-               data = dfsim)
-summary(glmm.rank.poiss.2)
-report_table(glmm.rank.poiss.2)
-check_model(glmm.rank.poiss.2)
-
-```
-
 
 ## Cumulative Link Mixed Model for ranking within foraging groups
 
@@ -151,16 +164,208 @@ clmm.rank = clmm(rank.f ~ 1 + (1|Id), data = dfsim, threshold = "equidistant")
 clmm.rank
 ```
 
+```{r}
+#| eval: true
+#| echo: false
+# Import model
+brms.rank = read_rds(here("outputs/mods/brms.rank.rds"))
+```
+
 
 ```{r}
+#| eval: false
 brms.rank = brm(rank ~ 1 + (1|Id), 
                 data = dfsim,
                 family = "cumulative",
                 cores = 4, 
                 threads = 4, 
                 iter = 500,
+                seed = 42,
                 backend = "cmdstanr", 
-                file = here("outputs/brms.rank"))
+                file = here("outputs/mods/brms.rank"))
+```
+```{r}
+report_table(brms.rank)
+pp_check(brms.rank, ndraws = 100)
 ```
 
+
+## Comparing repeatability between Binomial and Poisson GLMM
+
+```{r}
+#| eval: true
+#| echo: false
+# Import model
+rpt.bin = read_rds(here("outputs/mods/rpt.bin.rds"))
+rpt.poiss = read_rds(here("outputs/mods/rpt.poiss.rds"))
+```
+
+
+```{r}
+#| eval: false
+rpt.bin = rpt(formula = cbind(rank, Group_N) ~ 1 + (1|Id), 
+              grname = "Id", 
+              datatype = "Proportion", 
+              data = dfsim)
+rpt.poiss = rpt(formula = rank ~ 1 + (1|Id), 
+              grname = "Id", 
+              datatype = "Poisson", 
+              data = dfsim)
+# Save models to avoid rerunning later
+saveRDS(object = rpt.bin, file = here("outputs/mods/rpt.bin.rds"))
+saveRDS(object = rpt.poiss, file = here("outputs/mods/rpt.poiss.rds"))
+```
+
+```{r}
+plot(rpt.bin); plot(rpt.poiss)
+```
+
+## Comparing repeatability and variance components between groups
+
+```{r}
+# Make a fake sex column where half individuals get assigned as females and the other half as males
+ID$Sex <- as.factor(c(rep("F", nrow(ID)/2),
+                      rep("M", nrow(ID)/2)))
+dfsim = merge(dfsim, ID)
+```
+
+### Estimate repeatability by sex
+
+```{r}
+#| eval: true
+#| echo: false
+# Import model
+rpt.R.f = read_rds(here("outputs/mods/rpt.R.f.rds"))
+rpt.R.m = read_rds(here("outputs/mods/rpt.R.m.rds"))
+rpt.V.f = read_rds(here("outputs/mods/rpt.V.f.rds"))
+rpt.V.m = read_rds(here("outputs/mods/rpt.V.m.rds"))
+```
+
+
+```{r}
+#| eval: false
+rpt.f = rpt(formula = rank ~ 1 + (1|Id), 
+              grname = "Id", 
+              datatype = "Poisson", 
+              data = subset(dfsim, Sex == "F"))
+rpt.m = rpt(formula = rank ~ 1 + (1|Id), 
+              grname = "Id", 
+              datatype = "Poisson", 
+              data = subset(dfsim, Sex == "M"))
+saveRDS(rpt.R.f, here("outputs/mods/rpt.R.f.rds"))
+saveRDS(rpt.R.m, here("outputs/mods/rpt.R.m.rds"))
+```
+
+This code store the values for repeatability into an `rpt` object. We can access the numeric values of each bootstrap from within the `R_boot` column and plot the distribution or the distribution for the difference between each sexes.
+
+```{r}
+# Inspect rpt objects
+summary(rpt.R.f)
+summary(rpt.R.m)
+
+
+plot(rpt.R.f, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
+plot(rpt.R.m, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
+
+# plot deltaR as R_f - R_m
+hist(rpt.R.f$R_boot_link$Id-rpt.R.m$R_boot_link$Id)
+
+```
+
+### Estimate among and within-individual variance by sex
+To get the among and within-individual variances, we need to rerun the `rpt` function, this time specifying that we want to extract the variance rather than the repeatablities. This can be done by setting the ratio argument to `ratio = F``
+
+```{r}
+#| eval: false
+rpt.V.f <- rpt(formula = rank ~ 1 + (1|Id), 
+           grname = c("Id", "Residual"), 
+           datatype = c("Poisson"), 
+           data = subset(dfsim, Sex == "F"),
+           ratio = FALSE)
+rpt.V.m <- rpt(formula = rank ~ 1 + (1|Id), 
+           grname = c("Id", "Residual"), 
+           datatype = "Poisson", 
+           data = subset(dfsim, Sex == "M"),
+           ratio = FALSE)
+
+saveRDS(rpt.V.f, here("outputs/mods/rpt.V.f.rds"))
+saveRDS(rpt.V.m, here("outputs/mods/rpt.V.m.rds"))
+```
+
+```{r}
+# Plot Vi
+plot(rpt.V.f, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
+plot(rpt.V.m, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
+
+# plot deltaVi as Vi_f - Vi_m
+hist(rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)
+
+# Median and 95 % CIs for deltaR
+median(rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)
+quantile(((rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)), c(.025, .5, .975))
+
+# Plot VR
+plot(rpt.V.f, grname="Residual", type="boot", cex.main=0.8, col = "#ECEFF4")
+plot(rpt.V.m, grname="Residual", type="boot", cex.main=0.8, col = "#ECEFF4")
+
+# plot deltaVw as Vw_f - Vw_m
+hist(rpt.V.f$R_boot_link$Residual-rpt.V.m$R_boot_link$Residual)
+```
+
+### Combining all elements into a nice plot
+
+```{r}
+# Store all vectors of bootstrapped values
+Vi_f <- rpt.V.f$R_boot_link$Id
+Vi_m <- rpt.V.m$R_boot_link$Id
+VR_f <- rpt.V.f$R_boot_link$Residual
+VR_m <- rpt.V.m$R_boot_link$Residual
+R_f <- rpt.R.f$R_boot_link$Id
+R_m <- rpt.R.m$R_boot_link$Id
+
+df <- data.frame(Vi = c(Vi_f, Vi_m),
+                 VR = c(VR_f, VR_m),
+                 R = c(R_f, R_m),
+                 Sex = c(rep("F", length(Vi_f)),
+                         rep("M", length(Vi_m)))) 
+# Store effect sizes
+df.2  <- data.frame(delta_R = R_f - R_m,
+                    delta_Vi = Vi_f - Vi_m,
+                    delta_VR = VR_f - VR_m)
+
+p1 <- df %>% 
+  ggplot(aes(x = Vi, y = Sex, fill = Sex)) +
+  stat_halfeye() + 
+  scale_fill_wsj() +
+  theme_bw()
+p2 <- df %>% 
+  ggplot(aes(x = VR, y = Sex, fill = Sex)) +
+  stat_halfeye() + 
+  scale_fill_wsj() +
+  theme_bw()
+p3 <- df %>% 
+  ggplot(aes(x = R, y = Sex, fill = Sex)) +
+  stat_halfeye() + 
+  scale_fill_wsj() +
+  theme_bw()
+p1+p2+p3 + plot_layout(ncol = 1)
+
+p4 <- df.2 %>% 
+  ggplot(aes(x = delta_Vi, y = 0)) +
+  stat_halfeye() +
+  theme_bw()
+p5 <- df.2 %>% 
+  ggplot(aes(x = delta_VR, y = 0)) +
+  stat_halfeye() +
+  theme_bw()
+p6 <- df.2 %>% 
+  ggplot(aes(x = delta_R, y = 0)) +
+  stat_halfeye() +
+  theme_bw()
+
+p1 <- p1 + inset_element(p4, left = 0.6, bottom = 0.6, right = 1, top = 1) 
+p2 <- p2 + inset_element(p5, left = 0.6, bottom = 0.6, right = 1, top = 1) 
+p3 <- p3 + inset_element(p6, left = 0.6, bottom = 0.6, right = 1, top = 1)
+p1 / p2 / p3
+```
 
