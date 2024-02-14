@@ -10,8 +10,9 @@ TODO
 
 ```{r}
 # Make sure to have these packages installed before runnig the code below
-library(tidyverse);  library(kableExtra); library(lme4); library(partR2)
-library(easystats); library(ordinal)
+library(tidyverse);  library(here)
+library(kableExtra); library(lme4); library(partR2)
+library(easystats); library(ordinal); library(brms)
 ```
 
 
@@ -38,9 +39,11 @@ dfsim = data.frame(Obs = rep(1:N_obs, each = N_ID),
   mutate(Group_ID = paste(Group, Obs, sep = "_"))
 dfsim %>% head(15) %>% kable()
 
+# Save data 
+write.csv2(dfsim, here("data/data_sim.csv"))
 ```
 
-We now have each individual assigned to a foraging group. We now need to figure out a way to assign ranks corresponding to an individual's position within the group (1: at the front, 2: second from the front, ...). 
+We now have each individual assigned to a foraging group. We then need to figure out a way to assign ranks corresponding to an individual's position within the group (1: at the front, 2: second from the front, ...). 
 
 ### Individual preference for position in group
 The simplest way to rank individuals is to give them a preference score for belonging to the front or not according to a normal distribution. Here, we assume that this preference is sampled from a normal distribution of mean 0 and a standard deviation of 1 ($N(0, 1)$). We can store this information in a dataframe format 
@@ -78,6 +81,9 @@ dfsim %>% head(15) %>% kable()
 
 ## Data analysis
 
+I'm comparing 3 GLMM distribution families for analyzing individual position in group:
+- A binomial GLMM where position is bounded by group size
+
 ## Binomial GLMM for the probability of leading a  foraging groups
 
 ```{r}
@@ -100,15 +106,39 @@ r2(glmm.lead)
 ## Binomial GLMM for ranking within foraging groups
 
 ```{r}
-glmm.rank = glmer(cbind(rank, Group_N) ~ 1 + (1|Id), 
+glmm.rank.bin = glmer(cbind(rank, Group_N) ~ 1 + (1|Id), 
                family = "binomial", 
                data = dfsim)
-summary(glmm.rank)
+summary(glmm.rank.bin)
 ```
 
 ```{r}
-report_table(glmm.rank)
-check_model(glmm.rank)
+report_table(glmm.rank.bin)
+check_model(glmm.rank.bin)
+```
+
+## Poisson GLMM for ranking within foraging groups
+
+```{r}
+glmm.rank.poiss = glmer(rank ~ 1 + (1|Id), 
+               family = "poisson", 
+               data = dfsim)
+summary(glmm.rank.poiss)
+```
+
+```{r}
+report_table(glmm.rank.poiss)
+check_model(glmm.rank.poiss)
+```
+
+```{r}
+glmm.rank.poiss.2 = glmer(rank ~ Group_N + (1|Id), 
+               family = "poisson", 
+               data = dfsim)
+summary(glmm.rank.poiss.2)
+report_table(glmm.rank.poiss.2)
+check_model(glmm.rank.poiss.2)
+
 ```
 
 
@@ -129,7 +159,8 @@ brms.rank = brm(rank ~ 1 + (1|Id),
                 cores = 4, 
                 threads = 4, 
                 iter = 500,
-                backend = "cmdstanr")
+                backend = "cmdstanr", 
+                file = here("outputs/brms.rank"))
 ```
 
 
