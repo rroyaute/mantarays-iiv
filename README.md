@@ -6,3 +6,6 @@ Testing different GLMMs distribution to estimate the repeatability of individual
 - `outputs/` Simulation outputs
   - `figs/` Figures
   - `quarto/` Reproducible Quarto report
+ 
+## Reproducible report
+https://rroyaute.github.io/mantarays-iiv/
