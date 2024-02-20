@@ -4,8 +4,11 @@ author: "Raphaël Royauté"
 date: last-modified
 format:
   html: 
-    code-fold: true
+    code-fold: false
+    code-link: true
     fig-cap-location: bottom
+    number-sections: true
+    number-depth: 3
     shift-heading-level-by: 1
     embed-resources: true
 toc: true
@@ -31,7 +34,7 @@ TODO
 library(tidyverse);  library(here); library(kableExtra); library(lme4)
 library(brms); library(rptR); library(partR2); library(easystats)
 library(ordinal); library(ggdist); library(tidyverse); library(ggthemes)
-library(patchwork)
+library(patchwork); library(tidybayes)
 ```
 
 
@@ -41,6 +44,7 @@ library(patchwork)
 We imagine a closed population of 100 mantas observed foraging in 100 instances. For simplicity, lets say that mantas always forage in groups of 10 individuals but the identity of each individual present in a given group shifts from observation to observation.
 
 ```{r}
+#| code-fold: true
 # Seed for reproducible simulation
 set.seed(42) 
 
@@ -79,12 +83,12 @@ We then merge the column `pref` into the `dfsim` dataframe
 
 ```{r}
 dfsim = merge(dfsim, ID)
-
 ```
 
 Based on this preference score, we assign a rank to each individuals within each foraging observation and group. Because the way the `rank()` function works, individuals with the most negative value are more likely to get a lower rank value.
 
 ```{r}
+#| code-fold: true
 set.seed(42) 
 
 dfsim = dfsim %>% 
@@ -93,7 +97,6 @@ dfsim = dfsim %>%
   arrange(Obs, Group) %>% 
   ungroup()
 dfsim %>% head(15) %>% kable()
-
 ```
 
 
@@ -101,61 +104,66 @@ dfsim %>% head(15) %>% kable()
 ## Data analysis
 
 I'm comparing 3 GLMM distribution families for analyzing individual position in group:
-- A binomial GLMM where position is bounded by group size
-- A Poisson GLMM where position is not bounded by group size
-- A cumulative link GLMM where ranks are considered discrete ordered categories and are bounded by group size
+*   A binomial GLMM where position is bounded by group size
+*   A Poisson GLMM where position is not bounded by group size
+*   A cumulative link GLMM where ranks are considered discrete ordered categories and are bounded by group size
 
 The last model is probably the most accurate but is also the most difficult to work with! By comparing those models, my goal is to figure out if a binomial or Poisson GLMM is sufficient to recover the simulated parameter estimates and to properly predict the distribution of ranks within groups. While calculating repeatability for binomial and Poisson GLMM has been well resolved, there are no known formula for the cumulative link GLMM (that I know of!). 
 
-## Binomial GLMM for the probability of leading a  foraging groups
+### Binomial GLMM for the probability of leading a foraging groups
 
 ```{r}
 dfsim = dfsim %>% 
-  mutate(lead = case_when(rank == 1 ~ 1, rank > 1 ~ 0))
+  mutate(lead = case_when(rank == 1 ~ 1, 
+                          rank > 1 ~ 0))
 
 glmm.lead = glmer(lead ~ 1 + (1|Id), 
-               family = "binomial", 
-               data = dfsim)
+                  family = "binomial", 
+                  data = dfsim)
 summary(glmm.lead)
 ```
 
 ```{r}
-report_table(glmm.lead)
-r2(glmm.lead)
+#| code-fold: true
+report_table(glmm.lead) %>% kable()
+r2(glmm.lead) %>% kable()
 ```
 
 
 
-## Binomial GLMM for ranking within foraging groups
+### Binomial GLMM for position within foraging groups
 
 ```{r}
 glmm.rank.bin = glmer(cbind(rank, Group_N) ~ 1 + (1|Id), 
-               family = "binomial", 
-               data = dfsim)
+                      family = "binomial", 
+                      data = dfsim)
 summary(glmm.rank.bin)
 ```
 
 ```{r}
-report_table(glmm.rank.bin)
-check_model(glmm.rank.bin)
+#| code-fold: true
+report_table(glmm.rank.bin) %>% kable()
+check_model(glmm.rank.bin) %>% kable()
 ```
 
-## Poisson GLMM for ranking within foraging groups
+### Poisson GLMM for position within foraging groups
 
 ```{r}
 glmm.rank.poiss = glmer(rank ~ 1 + (1|Id), 
-               family = "poisson", 
-               data = dfsim)
+                        family = "poisson", 
+                        data = dfsim)
 summary(glmm.rank.poiss)
 ```
 
 ```{r}
-report_table(glmm.rank.poiss)
-check_model(glmm.rank.poiss)
+#| code-fold: true
+report_table(glmm.rank.poiss) %>% kable()
+check_model(glmm.rank.poiss) %>% kable()
 ```
 
 
-## Cumulative Link Mixed Model for ranking within foraging groups
+### Cumulative Link Mixed Model for position within foraging groups
+We have two options for CLMMs in R: the `ordinal` package which fits CLMMs in a frequentist framework and `brms` which uses a Bayesian approach. I have a strong preference for working with `brms` given its flexibility and lots of functionality for extracting parameter values and plotting. In contrast, `ordinal` only handles 1 random effect within a model and several utility functions such as `predict()` are not implemented yet.
 
 
 ```{r}
@@ -185,42 +193,288 @@ brms.rank = brm(rank ~ 1 + (1|Id),
                 file = here("outputs/mods/brms.rank"))
 ```
 ```{r}
-report_table(brms.rank)
-pp_check(brms.rank, ndraws = 100)
+report_table(brms.rank) %>% kable()
+pp_check(brms.rank, ndraws = 100) %>% kable()
 ```
 
 
-## Comparing repeatability between Binomial and Poisson GLMM
+## Comparing the predictive accuracy of the models
+We can fit all these models as Bayesian models and compare posterior predictive checks to compare whether one model predicts the data more accurately. We first need to define some reasonable priors and explore prior predictive checks (i.e. how the model might predict data points without having seen the data yet, taking information only from the priors).
+
 
 ```{r}
 #| eval: true
 #| echo: false
-# Import model
-rpt.bin = read_rds(here("outputs/mods/rpt.bin.rds"))
-rpt.poiss = read_rds(here("outputs/mods/rpt.poiss.rds"))
+# Import models
+brms.bin.prior = read_rds(here("outputs/mods/brms.bin.prior.rds"))
+brms.poiss.prior = read_rds(here("outputs/mods/brms.poiss.prior.rds"))
+brms.clmm.prior = read_rds(here("outputs/mods/brms.clmm.prior.rds"))
+
+brms.bin = read_rds(here("outputs/mods/brms.bin.rds"))
+brms.poiss = read_rds(here("outputs/mods/brms.poiss.rds"))
+brms.clmm = read_rds(here("outputs/mods/brms.clmm.rds"))
+
 ```
 
 
 ```{r}
 #| eval: false
-rpt.bin = rpt(formula = cbind(rank, Group_N) ~ 1 + (1|Id), 
-              grname = "Id", 
-              datatype = "Proportion", 
-              data = dfsim)
-rpt.poiss = rpt(formula = rank ~ 1 + (1|Id), 
-              grname = "Id", 
-              datatype = "Poisson", 
-              data = dfsim)
-# Save models to avoid rerunning later
-saveRDS(object = rpt.bin, file = here("outputs/mods/rpt.bin.rds"))
-saveRDS(object = rpt.poiss, file = here("outputs/mods/rpt.poiss.rds"))
+bf.bin = bf(rank | trials(Group_N) ~ 1 + (1|Id),
+            family = "binomial")
+
+bf.poiss = bf(rank ~ 1 + (1|Id),
+              family = "poisson")
+
+bf.clmm = bf(rank ~ 1 + (1|Id),
+             family = "cumulative")
+
+priors.bin <- 
+  # Intercepts priors
+  prior(normal(.2, .05), class = Intercept) +
+  # Random effects priors (default to exp(1))
+  prior(exponential(1), class = sd)
+
+priors.poiss <- 
+  # Intercepts priors
+  prior(normal(1.6, .1), class = Intercept, lb = 0) +
+  # Random effects priors
+  prior(exponential(1), class = sd)
+
+priors.clmm <- 
+  # Intercepts priors (default to exp(1))
+  prior(normal(0, 1), class = Intercept) +
+  # Random effects priors (default to exp(1))
+  prior(exponential(1), class = sd)
 ```
+
+Without getting too much into the details, I'm choosing priors based on the expected average position in a group of 10 individuals. With the binomial GLMM, this translate into the probability of occupying a rank between 1 and 10 in a group of 10 = 0.55. This corresponds to an intercept value of 0.2 on the logit scale. Similarly, the mean position in a group of 10 individual is 5.5, which correspond to an intercept of 1.5 on the exponential scale.
+
+We then apply these priors to the simulated data structure
 
 ```{r}
-plot(rpt.bin); plot(rpt.poiss)
+#| eval: false
+brms.bin.prior = brm(bf.bin,
+                     data = dfsim,
+                     prior = priors.bin,
+                     sample_prior = "only",
+                     warmup = 1000,
+                     iter = 2000,
+                     seed = 42, 
+                     cores = 8, 
+                     threads = threading(8),
+                     control = list(adapt_delta = .99,
+                                    max_treedepth = 15),
+                     backend = "cmdstanr", 
+                     file_refit = "always",
+                     file = here("outputs/mods/brms.bin.prior"))
+
+brms.poiss.prior = brm(bf.poiss, 
+                       data = dfsim,
+                       prior = priors.poiss,
+                       sample_prior = "only",
+                       warmup = 1000,
+                       iter = 2000,
+                       seed = 42, 
+                       cores = 8, 
+                       threads = threading(8),
+                       control = list(adapt_delta = .99,
+                                      max_treedepth = 15),
+                       backend = "cmdstanr", 
+                       file_refit = "always",
+                       file = here("outputs/mods/brms.poiss.prior"))
+
+brms.clmm.prior = brm(bf.clmm, 
+                      data = dfsim,
+                      prior = priors.clmm,
+                      sample_prior = "only",
+                      warmup = 1000,
+                      iter = 2000,
+                      seed = 42, 
+                      cores = 8,
+                      threads = threading(8),
+                      control = list(adapt_delta = .99,
+                                     max_treedepth = 15),
+                      backend = "cmdstanr", 
+                      file_refit = "always",
+                      file = here("outputs/mods/brms.clmm.prior"))
 ```
 
+And next plot draws from the prior distribution
+
+```{r}
+#| label: fig-priorpcheck
+#| fig-cap: "Prior predictive checks for the distribution of individual positions within manta foraging groups"
+#| fig-width: 6
+#| fig-height: 3.5
+
+plot.bin = pp_check(brms.bin.prior, ndraws = 500) +
+  xlim(0, 15) +
+  ggtitle("Binomial GLMM") 
+
+plot.poiss = pp_check(brms.poiss.prior, ndraws = 500) +
+  xlim(0, 15) +
+  ggtitle("Poisson GLMM") 
+
+plot.clmm = pp_check(brms.clmm.prior, ndraws = 500) +
+  xlim(0, 15) +
+  ggtitle("Cumulative Link Mixed Model")
+
+plot.priorpcheck = (plot.bin / plot.poiss / plot.clmm) +
+  plot_annotation("Prior-predictive checks") &
+  theme_bw(14)
+plot.priorpcheck
+```
+
+We can already spot some potential issues! Both binomial and Poisson GLMMs predict ranks of 0, which is impossible given our data structure. The cumulative link mixed model seems to fit the data more correctly instead. 
+
+Using the same priors, we now fit these models to the simulated data
+
+```{r}
+#| eval: false
+brms.bin = brm(bf.bin,
+                     data = dfsim,
+                     prior = priors.bin,
+                     warmup = 5000,
+                     iter = 6000,
+                     seed = 42, 
+                     cores = 8, 
+                     threads = threading(8),
+                     control = list(adapt_delta = .99,
+                                    max_treedepth = 15),
+                     backend = "cmdstanr", 
+                     file_refit = "always",
+                     file = here("outputs/mods/brms.bin"))
+
+brms.poiss = brm(bf.poiss, 
+                       data = dfsim,
+                       prior = priors.poiss,
+                       warmup = 5000,
+                       iter = 6000,
+                       seed = 42, 
+                       cores = 8, 
+                       threads = threading(8),
+                       control = list(adapt_delta = .99,
+                                      max_treedepth = 15),
+                       backend = "cmdstanr", 
+                       file_refit = "always",
+                       file = here("outputs/mods/brms.poiss"))
+
+brms.clmm = brm(bf.clmm, 
+                      data = dfsim,
+                      prior = priors.clmm,
+                      warmup = 5000,
+                      iter = 6000,
+                      seed = 42, 
+                      cores = 8,
+                      threads = threading(8),
+                      control = list(adapt_delta = .99,
+                                     max_treedepth = 15),
+                      backend = "cmdstanr", 
+                      file_refit = "always",
+                      file = here("outputs/mods/brms.clmm"))
+```
+
+And compare predictive checks based on draws from the posterior distribution
+
+```{r}
+#| label: fig-ppcheck
+#| fig-cap: "Posterior predictive checks for the distribution of individual positions within manta foraging groups"
+#| fig-width: 6
+#| fig-height: 3.5
+
+plot.bin = pp_check(brms.bin, ndraws = 500) +
+  xlim(0, 10) +
+  ggtitle("Binomial GLMM") 
+
+plot.poiss = pp_check(brms.poiss, ndraws = 500) +
+  xlim(0, 10) +
+  ggtitle("Poisson GLMM") 
+
+plot.clmm = pp_check(brms.clmm, ndraws = 500) +
+  xlim(0, 10) +
+  ggtitle("Cumulative Link Mixed Model")
+
+
+plot.ppcheck = (plot.bin / plot.poiss / plot.clmm) +
+  plot_annotation("Posterior-predictive checks") &
+  theme_bw(14)
+plot.ppcheck
+```
+
+The issues noted above persist with the simulated data. We now to figure out how much of an issue this discrepancy might be in the context of estimating individual differences in individual position within foraging groups. There are also a number of convergence issues with the binomial and Poisson approaches that we don't encounter with the CLMM model (see `R\test.brms.R` file for the full report) .
+
+### Estimation of among-individual variance
+
+```{r}
+#| label: fig-vi
+#| fig-cap: "Among-individual variance estimates compared among three types of GLMMs for individual position in foraging groups"
+#| fig-width: 6
+#| fig-height: 3.5
+
+Vi.bin = brms.bin %>% 
+  spread_draws(sd_Id__Intercept)
+
+Vi.poiss = brms.poiss %>% 
+  spread_draws(sd_Id__Intercept)
+
+Vi.clmm = brms.clmm %>% 
+  spread_draws(sd_Id__Intercept)
+
+df.Vi = data.frame(
+  Vi = c(Vi.bin$sd_Id__Intercept,
+         Vi.poiss$sd_Id__Intercept,
+         Vi.clmm$sd_Id__Intercept),
+  Mod = factor(c(rep("Binomial", length(Vi.bin$sd_Id__Intercept)),
+                    rep("Poisson", length(Vi.poiss$sd_Id__Intercept)),
+                 rep("CLMM", length(Vi.clmm$sd_Id__Intercept))),
+                  levels = c("Binomial", "Poisson", "CLMM")))
+
+plot.Vi = df.Vi %>% 
+  ggplot(aes(x = Vi, y = Mod, fill = Mod)) +
+  stat_halfeye() + 
+  scale_fill_wsj() +
+  xlab("Among-individual variance") +
+  ylab("Model") +
+  theme_bw(14) +
+  theme(legend.position = "none")
+plot.Vi
+
+```
+
+As we can see, the variances have little in common between the three models. An added difficulty is that have a firm grasp on what the simulated variance *ought* to be. Individuals were given a value sampled from a $Normal(0, 1)$ distribution but were then ranked at each observation. We can calculate the variance for mean individual rank as a proxy for the true among-individual variance though
+
+```{r}
+dfsim %>% 
+  group_by(Id, Obs) %>% 
+  mutate(mean_rank = mean(rank)) %>% 
+  ungroup() %>% 
+  summarise(Vi = var(mean_rank))
+```
+
+We may also ask how accurate the random effect values for each individual are compared to our simulation.
+
+```{r}
+#| label: fig-blups
+#| fig-cap: "Random effect values compared among three types of GLMMs"
+#| fig-width: 6
+#| fig-height: 3.5
+
+p1 = forest(brms.bin)
+p2 = forest(brms.poiss)
+p3 = forest(brms.clmm)
+
+(p1 + p2 + p3 ) & theme_bw(14)
+```
+
+
+
+## Conclusions on best models for position within group
+There is a clear advantage for the CLMM model which performs much better than the binomial or Poisson GLMMs. However, estimating the repeatability for this class of model remains tricky! With non-Gaussian GLMMs, the residual variance is not a statistical parameter estimated from the model, but rather depends on the link function used and the overdispersion type used to fit the model. These issues are now well-resolved for binomial, Poisson and Gamma distribution. However, there is no guidance, to my knowledge, in how to calculate the residual variance with CLMMs. Given these limitations, it seems much more appropriate to compare variability among and within individuals using the leading/following data rather than relying on an individual's exact position within the group. This should give qualitatively equivalent data on whether some individuals are more likely to position themselves at the front of the foraging chain and therefore seems the much wiser option!
+
+
 ## Comparing repeatability and variance components between groups
+
+I focus here in the leading/following behaviors as they are much more consistent with a binomial GLMM. For convenience, I simply allocated individuals to male or female categories at random and do not assume any differences among sexes.
 
 ```{r}
 # Make a fake sex column where half individuals get assigned as females and the other half as males
@@ -229,143 +483,139 @@ ID$Sex <- as.factor(c(rep("F", nrow(ID)/2),
 dfsim = merge(dfsim, ID)
 ```
 
+As in section 1
+
 ### Estimate repeatability by sex
 
 ```{r}
 #| eval: true
 #| echo: false
 # Import model
-rpt.R.f = read_rds(here("outputs/mods/rpt.R.f.rds"))
-rpt.R.m = read_rds(here("outputs/mods/rpt.R.m.rds"))
-rpt.V.f = read_rds(here("outputs/mods/rpt.V.f.rds"))
-rpt.V.m = read_rds(here("outputs/mods/rpt.V.m.rds"))
+rpt.R.f = read_rds(here("outputs/mods/rpt.R.f.bin.rds"))
+rpt.R.m = read_rds(here("outputs/mods/rpt.R.m.bin.rds"))
+rpt.V.f = read_rds(here("outputs/mods/rpt.V.f.bin.rds"))
+rpt.V.m = read_rds(here("outputs/mods/rpt.V.m.bin.rds"))
 ```
 
 
 ```{r}
 #| eval: false
-rpt.f = rpt(formula = rank ~ 1 + (1|Id), 
-              grname = "Id", 
-              datatype = "Poisson", 
-              data = subset(dfsim, Sex == "F"))
-rpt.m = rpt(formula = rank ~ 1 + (1|Id), 
-              grname = "Id", 
-              datatype = "Poisson", 
-              data = subset(dfsim, Sex == "M"))
+rpt.R.f = rpt(formula = lead ~ 1 + (1|Id), 
+            grname = "Id", 
+            datatype = "Binary", 
+            data = subset(dfsim, Sex == "F"))
+rpt.R.m = rpt(formula = lead ~ 1 + (1|Id), 
+            grname = "Id", 
+            datatype = "Binary", 
+            data = subset(dfsim, Sex == "M"))
 saveRDS(rpt.R.f, here("outputs/mods/rpt.R.f.rds"))
 saveRDS(rpt.R.m, here("outputs/mods/rpt.R.m.rds"))
 ```
 
 This code store the values for repeatability into an `rpt` object. We can access the numeric values of each bootstrap from within the `R_boot` column and plot the distribution or the distribution for the difference between each sexes.
 
+:::{.callout-note}
+For convenience, I'm calculating an 'adjusted repeatability', which correspond to $R_{adj} = \frac{V_i}{V_i + V_r}$, where $V_i$ is the among-individual variance and $V_r$ is the residual variance  (a.k.a. the the within-individual variance). In other terms, I'm 'adjusting' the repeatability value by leaving out the variance explained by fixed effects from the denominator. We could also consider that sexes contribute to the variation in leading or following during foraging event. In which case, we would compute the 'unadjusted repeatability' by including the fixed effect variance ($V_{fe}$) in the denominator: $R_{unadj} = \frac{V_i}{V_i + V_{fe} + V_r}$. This is easily done by setting the `adjusted` argument to `adjusted = T` within the `rptr()` function.
+:::
+
 ```{r}
 # Inspect rpt objects
 summary(rpt.R.f)
 summary(rpt.R.m)
-
-
-plot(rpt.R.f, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
-plot(rpt.R.m, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
-
-# plot deltaR as R_f - R_m
-hist(rpt.R.f$R_boot_link$Id-rpt.R.m$R_boot_link$Id)
-
 ```
 
 ### Estimate among and within-individual variance by sex
-To get the among and within-individual variances, we need to rerun the `rpt` function, this time specifying that we want to extract the variance rather than the repeatablities. This can be done by setting the ratio argument to `ratio = F``
+To get the among and within-individual variances, we need to rerun the `rpt` function, this time specifying that we want to extract the variance rather than the repeatablities. This can be done by setting the ratio argument to `ratio = F`
 
 ```{r}
 #| eval: false
-rpt.V.f <- rpt(formula = rank ~ 1 + (1|Id), 
-           grname = c("Id", "Residual"), 
-           datatype = c("Poisson"), 
-           data = subset(dfsim, Sex == "F"),
-           ratio = FALSE)
-rpt.V.m <- rpt(formula = rank ~ 1 + (1|Id), 
-           grname = c("Id", "Residual"), 
-           datatype = "Poisson", 
-           data = subset(dfsim, Sex == "M"),
-           ratio = FALSE)
+rpt.V.f <- rpt(formula = lead ~ 1 + (1|Id), 
+               grname = c("Id", "Fixed", "Residual"), 
+               datatype = c("Binary"), 
+               data = subset(dfsim, Sex == "F"),
+               ratio = FALSE)
+rpt.V.m <- rpt(formula = lead ~ 1 + (1|Id), 
+               grname = c("Id", "Fixed", "Residual"), 
+               datatype = "Binary", 
+               data = subset(dfsim, Sex == "M"),
+               ratio = FALSE)
 
 saveRDS(rpt.V.f, here("outputs/mods/rpt.V.f.rds"))
 saveRDS(rpt.V.m, here("outputs/mods/rpt.V.m.rds"))
 ```
 
-```{r}
-# Plot Vi
-plot(rpt.V.f, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
-plot(rpt.V.m, grname="Id", type="boot", cex.main=0.8, col = "#ECEFF4")
-
-# plot deltaVi as Vi_f - Vi_m
-hist(rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)
-
-# Median and 95 % CIs for deltaR
-median(rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)
-quantile(((rpt.V.f$R_boot_link$Id-rpt.V.m$R_boot_link$Id)), c(.025, .5, .975))
-
-# Plot VR
-plot(rpt.V.f, grname="Residual", type="boot", cex.main=0.8, col = "#ECEFF4")
-plot(rpt.V.m, grname="Residual", type="boot", cex.main=0.8, col = "#ECEFF4")
-
-# plot deltaVw as Vw_f - Vw_m
-hist(rpt.V.f$R_boot_link$Residual-rpt.V.m$R_boot_link$Residual)
-```
-
 ### Combining all elements into a nice plot
 
 ```{r}
+#| label: fig-deltaV
+#| fig-cap: "Variance components and difference in variances compared among sexes"
+#| fig-width: 6
+#| fig-height: 3.5
+
 # Store all vectors of bootstrapped values
 Vi_f <- rpt.V.f$R_boot_link$Id
 Vi_m <- rpt.V.m$R_boot_link$Id
+Vfe_f <- rpt.V.f$R_boot_link$Fixed
+Vfe_m <- rpt.V.m$R_boot_link$Fixed
 VR_f <- rpt.V.f$R_boot_link$Residual
 VR_m <- rpt.V.m$R_boot_link$Residual
 R_f <- rpt.R.f$R_boot_link$Id
 R_m <- rpt.R.m$R_boot_link$Id
 
 df <- data.frame(Vi = c(Vi_f, Vi_m),
+                 Vfe = c(Vfe_f, Vfe_m),
                  VR = c(VR_f, VR_m),
                  R = c(R_f, R_m),
                  Sex = c(rep("F", length(Vi_f)),
-                         rep("M", length(Vi_m)))) 
+                         rep("M", length(Vi_m)))) %>% 
+  # Long format
+  pivot_longer(cols = Vi:R, 
+               names_to = "v.compo", 
+               values_to = "var")
+
+
 # Store effect sizes
-df.2  <- data.frame(delta_R = R_f - R_m,
-                    delta_Vi = Vi_f - Vi_m,
-                    delta_VR = VR_f - VR_m)
+df.2  <- data.frame(delta_Vi = Vi_f - Vi_m,
+                    delta_Vfe = Vfe_f - Vfe_m,
+                    delta_VR = VR_f - VR_m,
+                    delta_R = R_f - R_m) %>% 
+  # Long format
+  pivot_longer(cols = delta_Vi:delta_R, 
+               names_to = "d.v.compo", 
+               values_to = "d.var")
 
-p1 <- df %>% 
-  ggplot(aes(x = Vi, y = Sex, fill = Sex)) +
-  stat_halfeye() + 
-  scale_fill_wsj() +
-  theme_bw()
-p2 <- df %>% 
-  ggplot(aes(x = VR, y = Sex, fill = Sex)) +
-  stat_halfeye() + 
-  scale_fill_wsj() +
-  theme_bw()
-p3 <- df %>% 
-  ggplot(aes(x = R, y = Sex, fill = Sex)) +
-  stat_halfeye() + 
-  scale_fill_wsj() +
-  theme_bw()
-p1+p2+p3 + plot_layout(ncol = 1)
 
-p4 <- df.2 %>% 
-  ggplot(aes(x = delta_Vi, y = 0)) +
-  stat_halfeye() +
-  theme_bw()
-p5 <- df.2 %>% 
-  ggplot(aes(x = delta_VR, y = 0)) +
-  stat_halfeye() +
-  theme_bw()
-p6 <- df.2 %>% 
-  ggplot(aes(x = delta_R, y = 0)) +
-  stat_halfeye() +
+facet.names = c(
+  "Vi" = expression(V[i]),
+  "Vfe" = expression(V[fe]),
+  "VR" = expression(V[R]),
+  "R" = "Repeatability")
+
+facet.names.2 = c(
+  "delta_Vi" = expression(delta[V[i]]),
+  "delta_Vfe" = expression(delta[V[fe]]),
+  "delta_VR" = expression(delta[V[R]]),
+  "delta_R" = "Repeatability")
+
+
+p1 = df %>% 
+  ggplot(aes(x = var, fill = Sex)) +
+  stat_halfeye() + 
+  scale_fill_wsj(alpha = .6) +
+  facet_wrap(~v.compo, labeller = facet.names) +
+  xlab("Variance and repeatability") +
+  ylab("Density") +
   theme_bw()
 
-p1 <- p1 + inset_element(p4, left = 0.6, bottom = 0.6, right = 1, top = 1) 
-p2 <- p2 + inset_element(p5, left = 0.6, bottom = 0.6, right = 1, top = 1) 
-p3 <- p3 + inset_element(p6, left = 0.6, bottom = 0.6, right = 1, top = 1)
-p1 / p2 / p3
+p2 = df.2 %>% 
+  ggplot(aes(x = var, fill = Sex)) +
+  stat_halfeye() + 
+  scale_fill_wsj(alpha = .6) +
+  facet_wrap(~d.v.compo, labeller = facet.names.2) +
+  xlab("Difference in variance and repeatability") +
+  ylab("Density") +
+  theme_bw()
+
+p1 / p2
 ```
 
