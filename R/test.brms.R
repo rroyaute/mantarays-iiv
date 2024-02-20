@@ -398,6 +398,12 @@ rpt.R.m = read_rds(here("outputs/mods/rpt.R.m.bin.rds"))
 rpt.V.f = read_rds(here("outputs/mods/rpt.V.f.bin.rds"))
 rpt.V.m = read_rds(here("outputs/mods/rpt.V.m.bin.rds"))
 
+plot(rpt.R.f)
+plot(rpt.R.m)
+plot(rpt.V.f)
+plot(rpt.V.m)
+
+
 Vi_f <- rpt.V.f$R_boot_link$Id
 Vi_m <- rpt.V.m$R_boot_link$Id
 Vfe_f <- rpt.V.f$R_boot_link$Fixed
@@ -412,106 +418,89 @@ df <- data.frame(Vi = c(Vi_f, Vi_m),
                  VR = c(VR_f, VR_m),
                  R = c(R_f, R_m),
                  Sex = c(rep("F", length(Vi_f)),
-                         rep("M", length(Vi_m)))) %>% 
+                         rep("M", length(Vi_m)))) # %>% 
   # Long format
-  pivot_longer(cols = Vi:R, 
-               names_to = "v.compo", 
-               values_to = "var")
+  # pivot_longer(cols = Vi:R, 
+  #              names_to = "v.compo", 
+  #              values_to = "var")
 
 
 # Store effect sizes
 df.2  <- data.frame(delta_Vi = Vi_f - Vi_m,
                     delta_Vfe = Vfe_f - Vfe_m,
                     delta_VR = VR_f - VR_m,
-                    delta_R = R_f - R_m) %>% 
+                    delta_R = R_f - R_m) #%>% 
   # Long format
-  pivot_longer(cols = delta_Vi:delta_R, 
-               names_to = "d.v.compo", 
-               values_to = "d.var")
-
-
-facet.names = c(
-  Vi = expression(V[i]),
-  Vfe = expression(V[fe]),
-  VR = expression(V[R]),
-  R = "Repeatability")
-
-facet.names.2 = c(
-  "delta_Vi" = expression(delta[V[i]]),
-  "delta_Vfe" = expression(delta[V[fe]]),
-  "delta_VR" = expression(delta[V[R]]),
-  "delta_R" = "Repeatability")
+  # pivot_longer(cols = delta_Vi:delta_R, 
+  #              names_to = "d.v.compo", 
+  #              values_to = "d.var")
 
 
 p1 = df %>% 
-  ggplot(aes(x = var, fill = Sex)) +
+  ggplot(aes(x = Vi, fill = Sex)) +
   stat_halfeye(alpha = .6) + 
   scale_fill_wsj() +
-  facet_wrap(~v.compo, ncol = 4, scales = "free") +
-  xlab("Variance and repeatability") +
+  xlab(bquote("Among-individual variance ("*V[i]*")")) +
   ylab("Density") +
-  theme_bw()
+  theme_bw(14)
+delta.p1 = df.2 %>% 
+  ggplot(aes(x = delta_Vi)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[i]])) +
+  ylab("Density") +
+  theme_bw(14)
+p1 = p1 + delta.p1
 
-p2 = df.2 %>% 
-  ggplot(aes(x = d.var)) +
+p2 = df %>% 
+  ggplot(aes(x = Vfe, fill = Sex)) +
   stat_halfeye(alpha = .6) + 
   scale_fill_wsj() +
-  # facet_wrap(~d.v.compo, labeller = facet.names.2) +
-  facet_wrap(~d.v.compo, ncol = 4, scales = "free")
-  xlab("Difference in variance and repeatability") +
+  xlab(bquote("Fixed effect variance ("*V[fe]*")")) +
   ylab("Density") +
-  theme_bw()
+  theme_bw(14)
+delta.p2 = df.2 %>% 
+  ggplot(aes(x = delta_Vfe)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[fe]])) +
+  ylab("Density") +
+  theme_bw(14)
+p2 = p2 + delta.p2
 
-p1 / p2
 
+p3 = df %>% 
+  ggplot(aes(x = Vfe, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlab(bquote("Residual variance ("*V[R]*")")) +
+  ylab("Density") +
+  theme_bw(14)
+delta.p3 = df.2 %>% 
+  ggplot(aes(x = delta_VR)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[fe]])) +
+  ylab("Density") +
+  theme_bw(14)
+p3 = p3 + delta.p3
 
-# df %>% 
-#   ggplot(aes(x = Vi, y = Sex, fill = Sex)) +
-#   stat_halfeye() + 
-#   scale_fill_wsj() +
-#   theme_bw()
-# 
-# 
-# p1 <- df %>% 
-#   ggplot(aes(x = Vi, y = Sex, fill = Sex)) +
-#   stat_halfeye() + 
-#   scale_fill_wsj() +
-#   theme_bw()
-# 
-# p2 <- df %>% 
-#   ggplot(aes(x = Vfe, y = Sex, fill = Sex)) +
-#   stat_halfeye() + 
-#   scale_fill_wsj() +
-#   theme_bw()
-# 
-# p2 <- df %>% 
-#   ggplot(aes(x = VR, y = Sex, fill = Sex)) +
-#   stat_halfeye() + 
-#   scale_fill_wsj() +
-#   theme_bw()
-# p3 <- df %>% 
-#   ggplot(aes(x = R, y = Sex, fill = Sex)) +
-#   stat_halfeye() + 
-#   scale_fill_wsj() +
-#   theme_bw()
-# p1+p2+p3 + plot_layout(ncol = 1)
-# 
-# p4 <- df.2 %>% 
-#   ggplot(aes(x = delta_Vi, y = 0)) +
-#   stat_halfeye() +
-#   theme_bw()
-# p5 <- df.2 %>% 
-#   ggplot(aes(x = delta_VR, y = 0)) +
-#   stat_halfeye() +
-#   theme_bw()
-# p6 <- df.2 %>% 
-#   ggplot(aes(x = delta_R, y = 0)) +
-#   stat_halfeye() +
-#   theme_bw()
-# 
-# p1 <- p1 + p4
-# p2 <- p2 + p5
-# p3 <- p3 + p6
-# p1 / p2 / p3
+p4 = df %>% 
+  ggplot(aes(x = R, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlim(0, 1) +
+  xlab(bquote("Repeatability (R)")) +
+  ylab("Density") +
+  theme_bw(14)
+delta.p4 = df.2 %>% 
+  ggplot(aes(x = delta_R)) +
+  stat_halfeye(alpha = .6) + 
+  xlim(0, 1) +
+  xlab(bquote(Delta[R])) +
+  ylab("Density") +
+  theme_bw(14)
+p4 = p4 + delta.p4
 
+plot_var_R = p1 / p2 / p3 / p4
+plot_var_R
+
+ggsave(filename = "outputs/figs/plot_var_R.jpeg", plot_var_R)
 
