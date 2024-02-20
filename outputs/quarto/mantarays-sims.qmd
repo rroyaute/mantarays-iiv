@@ -34,7 +34,7 @@ TODO
 library(tidyverse);  library(here); library(kableExtra); library(lme4)
 library(brms); library(rptR); library(partR2); library(easystats)
 library(ordinal); library(ggdist); library(tidyverse); library(ggthemes)
-library(patchwork); library(tidybayes); library(latex2exp)
+library(patchwork); library(tidybayes); library(visibly)
 ```
 
 
@@ -143,7 +143,7 @@ summary(glmm.rank.bin)
 ```{r}
 #| code-fold: true
 report_table(glmm.rank.bin) %>% kable()
-check_model(glmm.rank.bin) %>% kable()
+check_model(glmm.rank.bin)
 ```
 
 ### Poisson GLMM for position within foraging groups
@@ -158,7 +158,7 @@ summary(glmm.rank.poiss)
 ```{r}
 #| code-fold: true
 report_table(glmm.rank.poiss) %>% kable()
-check_model(glmm.rank.poiss) %>% kable()
+check_model(glmm.rank.poiss)
 ```
 
 
@@ -194,7 +194,7 @@ brms.rank = brm(rank ~ 1 + (1|Id),
 ```
 ```{r}
 report_table(brms.rank) %>% kable()
-pp_check(brms.rank, ndraws = 100) %>% kable()
+pp_check(brms.rank, ndraws = 100)
 ```
 
 
@@ -459,14 +459,14 @@ We may also ask how accurate the random effect values for each individual are co
 #| fig-width: 6
 #| fig-height: 3.5
 
-p1 = forest(brms.bin)
-p2 = forest(brms.poiss)
-p3 = forest(brms.clmm)
+p1 = plot_coefficients(brms.bin, ranef = TRUE, which_ranef = "Id")
+p2 = plot_coefficients(brms.poiss, ranef = TRUE, which_ranef = "Id")
+p3 = plot_coefficients(brms.poiss, ranef = TRUE, which_ranef = "Id")
 
 (p1 + p2 + p3 ) & theme_bw(14)
 ```
 
-
+As we can see, the random effects are expressed on very different scales, making comparisons difficult!
 
 ## Conclusions on best models for position within group
 There is a clear advantage for the CLMM model which performs much better than the binomial or Poisson GLMMs. However, estimating the repeatability for this class of model remains tricky! With non-Gaussian GLMMs, the residual variance is not a statistical parameter estimated from the model, but rather depends on the link function used and the overdispersion type used to fit the model. These issues are now well-resolved for binomial, Poisson and Gamma distribution. However, there is no guidance, to my knowledge, in how to calculate the residual variance with CLMMs. Given these limitations, it seems much more appropriate to compare variability among and within individuals using the leading/following data rather than relying on an individual's exact position within the group. This should give qualitatively equivalent data on whether some individuals are more likely to position themselves at the front of the foraging chain and therefore seems the much wiser option!
@@ -567,55 +567,79 @@ df <- data.frame(Vi = c(Vi_f, Vi_m),
                  VR = c(VR_f, VR_m),
                  R = c(R_f, R_m),
                  Sex = c(rep("F", length(Vi_f)),
-                         rep("M", length(Vi_m)))) %>% 
-  # Long format
-  pivot_longer(cols = Vi:R, 
-               names_to = "v.compo", 
-               values_to = "var")
-
-
+                         rep("M", length(Vi_m))))
 # Store effect sizes
 df.2  <- data.frame(delta_Vi = Vi_f - Vi_m,
                     delta_Vfe = Vfe_f - Vfe_m,
                     delta_VR = VR_f - VR_m,
-                    delta_R = R_f - R_m) %>% 
-  # Long format
-  pivot_longer(cols = delta_Vi:delta_R, 
-               names_to = "d.v.compo", 
-               values_to = "d.var")
-
-
-facet.names = c(
-  "Vi" = expression(V[i]),
-  "Vfe" = expression(V[fe]),
-  "VR" = expression(V[R]),
-  "R" = "Repeatability")
-
-facet.names.2 = c(
-  "delta_Vi" = expression(delta[V[i]]),
-  "delta_Vfe" = expression(delta[V[fe]]),
-  "delta_VR" = expression(delta[V[R]]),
-  "delta_R" = "Repeatability")
+                    delta_R = R_f - R_m)
 
 
 p1 = df %>% 
-  ggplot(aes(x = var, fill = Sex)) +
-  stat_halfeye() + 
-  scale_fill_wsj(alpha = .6) +
-  facet_wrap(~v.compo, labeller = facet.names) +
-  xlab("Variance and repeatability") +
+  ggplot(aes(x = Vi, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlab(bquote("Among-individual variance ("*V[i]*")")) +
   ylab("Density") +
-  theme_bw()
-
-p2 = df.2 %>% 
-  ggplot(aes(x = var, fill = Sex)) +
-  stat_halfeye() + 
-  scale_fill_wsj(alpha = .6) +
-  facet_wrap(~d.v.compo, labeller = facet.names.2) +
-  xlab("Difference in variance and repeatability") +
+  theme_bw(14)
+delta.p1 = df.2 %>% 
+  ggplot(aes(x = delta_Vi)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[i]])) +
   ylab("Density") +
-  theme_bw()
+  theme_bw(14)
+p1 = p1 + delta.p1
 
-p1 / p2
+p2 = df %>% 
+  ggplot(aes(x = Vfe, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlab(bquote("Fixed effect variance ("*V[fe]*")")) +
+  ylab("Density") +
+  theme_bw(14)
+delta.p2 = df.2 %>% 
+  ggplot(aes(x = delta_Vfe)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[fe]])) +
+  ylab("Density") +
+  theme_bw(14)
+p2 = p2 + delta.p2
+
+
+p3 = df %>% 
+  ggplot(aes(x = Vfe, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlab(bquote("Residual variance ("*V[R]*")")) +
+  ylab("Density") +
+  theme_bw(14)
+delta.p3 = df.2 %>% 
+  ggplot(aes(x = delta_VR)) +
+  stat_halfeye(alpha = .6) + 
+  xlab(bquote(Delta[V[fe]])) +
+  ylab("Density") +
+  theme_bw(14)
+p3 = p3 + delta.p3
+
+p4 = df %>% 
+  ggplot(aes(x = R, fill = Sex)) +
+  stat_halfeye(alpha = .6) + 
+  scale_fill_wsj() +
+  xlim(0, 1) +
+  xlab(bquote("Repeatability (R)")) +
+  ylab("Density") +
+  theme_bw(14)
+delta.p4 = df.2 %>% 
+  ggplot(aes(x = delta_R)) +
+  stat_halfeye(alpha = .6) + 
+  xlim(0, 1) +
+  xlab(bquote(Delta[R])) +
+  ylab("Density") +
+  theme_bw(14)
+p4 = p4 + delta.p4
+
+plot_var_R = p1 / p2 / p3 / p4
+plot_var_R
 ```
 
+The output looks a little janky, but that's not surprising given that we've simulated data with no fixed effects. In our case, the only source of variation comes from the amon-individual preferences for being at the front or the back of the group. Hence, the variation explained by fixed effects and residuals reduces to 0 and repeatability equals 1 in our case.
