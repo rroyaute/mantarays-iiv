@@ -504,3 +504,13 @@ plot_var_R
 
 ggsave(filename = "outputs/figs/plot_var_R.jpeg", plot_var_R)
 
+
+## 3.3 performance package ----
+glmm.f = glmer(lead ~ 1 + (1|Id), 
+               family = "binomial",
+               data = subset(dfsim, Sex == "F"))
+glmm.m = glmer(lead ~ 1 + (1|Id), 
+             family = "binomial",
+              data = subset(dfsim, Sex == "M"))
+r2_f = r2_nakagawa(glmm.f, ci = T)
+r2_m = r2_nakagawa(glmm.f, ci = T)
