@@ -34,7 +34,7 @@ TODO
 library(tidyverse);  library(here); library(kableExtra); library(lme4)
 library(brms); library(rptR); library(partR2); library(easystats)
 library(ordinal); library(ggdist); library(tidyverse); library(ggthemes)
-library(patchwork); library(tidybayes)
+library(patchwork); library(tidybayes); library(latex2exp)
 ```
 
 

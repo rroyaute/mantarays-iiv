@@ -1,7 +1,7 @@
 library(tidyverse);  library(here); library(kableExtra); library(lme4)
 library(brms); library(rptR); library(partR2); library(easystats)
 library(ordinal); library(ggdist); library(tidyverse); library(ggthemes)
-library(patchwork); library(cmdstanr)
+library(patchwork); library(cmdstanr); library(latex2exp)
 
 set.seed(42) 
 
@@ -392,6 +392,12 @@ saveRDS(rpt.V.f, here("outputs/mods/rpt.V.f.bin.rds"))
 saveRDS(rpt.V.m, here("outputs/mods/rpt.V.m.bin.rds"))
 
 # Store all vectors of bootstrapped values
+# Load models
+rpt.R.f = read_rds(here("outputs/mods/rpt.R.f.bin.rds"))
+rpt.R.m = read_rds(here("outputs/mods/rpt.R.m.bin.rds"))
+rpt.V.f = read_rds(here("outputs/mods/rpt.V.f.bin.rds"))
+rpt.V.m = read_rds(here("outputs/mods/rpt.V.m.bin.rds"))
+
 Vi_f <- rpt.V.f$R_boot_link$Id
 Vi_m <- rpt.V.m$R_boot_link$Id
 Vfe_f <- rpt.V.f$R_boot_link$Fixed
@@ -425,10 +431,10 @@ df.2  <- data.frame(delta_Vi = Vi_f - Vi_m,
 
 
 facet.names = c(
-  "Vi" = expression(V[i]),
-  "Vfe" = expression(V[fe]),
-  "VR" = expression(V[R]),
-  "R" = "Repeatability")
+  Vi = expression(V[i]),
+  Vfe = expression(V[fe]),
+  VR = expression(V[R]),
+  R = "Repeatability")
 
 facet.names.2 = c(
   "delta_Vi" = expression(delta[V[i]]),
@@ -441,16 +447,17 @@ p1 = df %>%
   ggplot(aes(x = var, fill = Sex)) +
   stat_halfeye(alpha = .6) + 
   scale_fill_wsj() +
-  facet_wrap(~v.compo, labeller = facet.names) +
+  facet_wrap(~v.compo, ncol = 4, scales = "free") +
   xlab("Variance and repeatability") +
   ylab("Density") +
   theme_bw()
 
 p2 = df.2 %>% 
-  ggplot(aes(x = var, fill = Sex)) +
+  ggplot(aes(x = d.var)) +
   stat_halfeye(alpha = .6) + 
   scale_fill_wsj() +
-  facet_wrap(~d.v.compo, labeller = facet.names.2) +
+  # facet_wrap(~d.v.compo, labeller = facet.names.2) +
+  facet_wrap(~d.v.compo, ncol = 4, scales = "free")
   xlab("Difference in variance and repeatability") +
   ylab("Density") +
   theme_bw()
