@@ -9,7 +9,7 @@ format:
     fig-cap-location: bottom
     number-sections: true
     number-depth: 3
-    shift-heading-level-by: 1
+    # shift-heading-level-by: 1
     embed-resources: true
 toc: true
 toc-depth: 5
@@ -304,8 +304,8 @@ And next plot draws from the prior distribution
 ```{r}
 #| label: fig-priorpcheck
 #| fig-cap: "Prior predictive checks for the distribution of individual positions within manta foraging groups"
-#| fig-width: 6
-#| fig-height: 3.5
+#| fig-width: 8
+#| fig-height: 8
 
 plot.bin = pp_check(brms.bin.prior, ndraws = 500) +
   xlim(0, 15) +
@@ -379,8 +379,8 @@ And compare predictive checks based on draws from the posterior distribution
 ```{r}
 #| label: fig-ppcheck
 #| fig-cap: "Posterior predictive checks for the distribution of individual positions within manta foraging groups"
-#| fig-width: 6
-#| fig-height: 3.5
+#| fig-width: 8
+#| fig-height: 8
 
 plot.bin = pp_check(brms.bin, ndraws = 500) +
   xlim(0, 10) +
@@ -408,8 +408,8 @@ The issues noted above persist with the simulated data. We now to figure out how
 ```{r}
 #| label: fig-vi
 #| fig-cap: "Among-individual variance estimates compared among three types of GLMMs for individual position in foraging groups"
-#| fig-width: 6
-#| fig-height: 3.5
+#| fig-width: 8
+#| fig-height: 8
 
 Vi.bin = brms.bin %>% 
   spread_draws(sd_Id__Intercept)
@@ -456,8 +456,8 @@ We may also ask how accurate the random effect values for each individual are co
 ```{r}
 #| label: fig-blups
 #| fig-cap: "Random effect values compared among three types of GLMMs"
-#| fig-width: 6
-#| fig-height: 3.5
+#| fig-width: 8
+#| fig-height: 8
 
 p1 = plot_coefficients(brms.bin, ranef = TRUE, which_ranef = "Id")
 p2 = plot_coefficients(brms.poiss, ranef = TRUE, which_ranef = "Id")
@@ -549,8 +549,8 @@ saveRDS(rpt.V.m, here("outputs/mods/rpt.V.m.rds"))
 ```{r}
 #| label: fig-deltaV
 #| fig-cap: "Variance components and difference in variances compared among sexes"
-#| fig-width: 6
-#| fig-height: 3.5
+#| fig-width: 8
+#| fig-height: 8
 
 # Store all vectors of bootstrapped values
 Vi_f <- rpt.V.f$R_boot_link$Id
